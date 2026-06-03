@@ -2322,6 +2322,11 @@
       "shouldPublish": false
     },
     {
+      "packageName": "@hcengineering/pod-mcp",
+      "projectFolder": "services/pod-mcp",
+      "shouldPublish": false
+    },
+    {
       "packageName": "@hcengineering/pod-ai-bot",
       "projectFolder": "services/ai-bot/pod-ai-bot",
       "shouldPublish": false
