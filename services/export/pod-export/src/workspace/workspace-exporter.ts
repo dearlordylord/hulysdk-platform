@@ -127,7 +127,8 @@ export class CrossWorkspaceExporter {
       relations = [],
       fieldMappers = {},
       skipDeletedObsolete = true,
-      exportOnlyEffective = false
+      exportOnlyEffective = false,
+      customHandlers = []
     } = options
 
     // Store field mappers
@@ -142,6 +143,8 @@ export class CrossWorkspaceExporter {
     )
     // Update document exporter with new data mapper
     this.documentExporter.setDataMapper(this.dataMapper)
+    // Register custom export handlers for this run
+    this.documentExporter.setCustomHandlers(customHandlers)
 
     // Pre-fetch current account's employee ID if available
     if (this.currentAccount !== undefined) {
@@ -184,6 +187,7 @@ export class CrossWorkspaceExporter {
         if (resolvedRelations.length === 0) {
           const relations = await sourcePipeline.findAll(this.context, core.class.RelationMetadata, {})
           resolvedRelations = relations.map((doc) => ({
+            sourceClass: doc.sourceClass,
             field: doc.field,
             class: doc.targetClass,
             direction: (doc.direction ?? 'forward') as 'forward' | 'inverse'
