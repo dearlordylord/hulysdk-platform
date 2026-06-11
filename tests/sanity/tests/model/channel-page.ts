@@ -11,6 +11,7 @@ export class ChannelPage extends CommonPage {
   }
 
   readonly inputMessage = (): Locator => this.page.locator('div[class~="text-editor-view"]')
+  readonly inputReplyMessage = (): Locator => this.page.locator('#sidebar div[class~="text-editor-view"]')
   readonly buttonSendMessage = (): Locator => this.page.locator('g#Send')
   readonly textMessage = (messageText: string, strict = false): Locator =>
     strict
@@ -42,22 +43,8 @@ export class ChannelPage extends CommonPage {
 
   readonly addMemberToChannelButton = (userName: string): Locator => this.page.getByText(userName)
   readonly joinChannelButton = (): Locator => this.page.getByRole('button', { name: 'Join' })
-  readonly addEmojiButton = (): Locator =>
-    this.page.locator('.activityMessage-actionPopup > button[data-id$="AddReactionAction"]').last()
 
   readonly selectEmoji = (emoji: string): Locator => this.page.getByText(emoji)
-  readonly saveMessageButton = (): Locator =>
-    this.page.locator('.activityMessage-actionPopup > button[data-id$="SaveForLaterAction"]').last()
-
-  readonly pinMessageButton = (): Locator =>
-    this.page.locator('.activityMessage-actionPopup > button[data-id$="PinMessageAction"]').last()
-
-  readonly replyButton = (): Locator =>
-    this.page.locator('.activityMessage-actionPopup > button[data-id="activity:action:Reply"]').last()
-
-  readonly openMoreButton = (): Locator =>
-    this.page.locator('.activityMessage-actionPopup > button[data-id="btnMoreActions"]').last()
-
   readonly messageSaveMarker = (): Locator => this.page.locator('.saveMarker')
   readonly saveMessageTab = (): Locator => this.page.getByRole('button', { name: 'Saved' })
   readonly pinnedMessageButton = (): Locator => this.page.getByRole('button', { name: 'pinned' })
@@ -99,6 +86,30 @@ export class ChannelPage extends CommonPage {
 
   readonly applicationChannelContainers = (): Locator =>
     this.page.locator('#navGroup-recruit\\:class\\:Applicant').locator('.hulyNavItem-container')
+
+  private escapeRegExp (value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  }
+
+  // Message blocks can be grouped; anchor actions to exact delivered text before climbing to the row.
+  private readonly deliveredMessageContent = (messageText: string): Locator =>
+    this.page.locator('.hulyComponent .activityMessage div[data-delivered]').filter({
+      hasText: new RegExp(`^\\s*${this.escapeRegExp(messageText)}\\s*$`)
+    })
+
+  private readonly messageRow = (messageText: string): Locator =>
+    this.deliveredMessageContent(messageText)
+      .first()
+      .locator('xpath=ancestor::*[contains(concat(" ", normalize-space(@class), " "), " activityMessage ")][1]')
+
+  private readonly messageActionButton = (messageText: string, buttonSelector: string): Locator =>
+    this.messageRow(messageText).locator(`.activityMessage-actionPopup > ${buttonSelector}`)
+
+  private async clickMessageAction (messageText: string, buttonSelector: string): Promise<void> {
+    const message = this.messageRow(messageText)
+    await message.hover()
+    await this.messageActionButton(messageText, buttonSelector).click()
+  }
 
   async sendMessage (message: string): Promise<void> {
     await this.inputMessage().fill(message)
@@ -172,8 +183,7 @@ export class ChannelPage extends CommonPage {
   }
 
   async clickOpenMoreButton (message: string): Promise<void> {
-    await this.textMessage(message).hover()
-    await this.openMoreButton().click()
+    await this.clickMessageAction(message, 'button[data-id="btnMoreActions"]')
   }
 
   async clickEditMessageButton (editedMessage: string): Promise<void> {
@@ -206,32 +216,29 @@ export class ChannelPage extends CommonPage {
   }
 
   async addEmoji (textMessage: string, emoji: string): Promise<void> {
-    await this.textMessage(textMessage).hover()
-    await this.addEmojiButton().click()
+    await this.clickMessageAction(textMessage, 'button[data-id$="AddReactionAction"]')
     await this.selectEmoji(emoji).click()
   }
 
   async saveMessage (message: string): Promise<void> {
-    await this.textMessage(message).hover()
-    await this.saveMessageButton().click()
+    await this.clickMessageAction(message, 'button[data-id$="SaveForLaterAction"]')
     await expect(this.messageSaveMarker()).toBeVisible()
   }
 
   async pinMessage (message: string): Promise<void> {
-    await this.textMessage(message).hover()
-    await this.pinMessageButton().click()
+    await this.clickMessageAction(message, 'button[data-id$="PinMessageAction"]')
     await this.pinnedMessageButton().click()
     await expect(this.pinnedMessage(message)).toBeVisible()
   }
 
   async replyMessage (message: string): Promise<void> {
-    await this.textMessage(message).hover()
-    await this.replyButton().click()
+    await this.clickMessageAction(message, 'button[data-id="activity:action:Reply"]')
   }
 
   async sendReply (messageReply: string): Promise<void> {
-    await this.page.keyboard.type(messageReply)
-    await this.page.keyboard.press('Enter')
+    // Target the sidebar editor directly so reply entry does not depend on page-level keyboard focus.
+    await this.inputReplyMessage().fill(messageReply)
+    await this.inputReplyMessage().press('Enter')
   }
 
   async closeAndOpenReplyMessage (): Promise<void> {

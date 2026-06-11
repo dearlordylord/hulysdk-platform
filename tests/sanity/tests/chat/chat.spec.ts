@@ -272,6 +272,29 @@ test.describe('Channel tests', () => {
     await channelPage.checkIfMessageExistInSidebar(true, 'Reply message')
   })
 
+  test('Reply stays attached to the selected thread after switching threads', async () => {
+    const firstParent = 'First thread parent'
+    const secondParent = 'Second thread parent'
+    const firstReply = 'Reply attached to first thread'
+    const secondReply = 'Reply attached to second thread only'
+
+    await leftSideMenuPage.clickChunter()
+    await channelPage.clickChannel('random')
+    await channelPage.sendMessage(firstParent)
+    await channelPage.sendMessage(secondParent)
+
+    await channelPage.replyMessage(firstParent)
+    await sidebarPage.checkIfSidebarIsOpen(true)
+    await sidebarPage.checkIfChatSidebarTabIsOpen(true, 'Thread')
+    await channelPage.sendReply(firstReply)
+    await channelPage.checkIfMessageExistInSidebar(true, firstReply)
+
+    await channelPage.replyMessage(secondParent)
+    await sidebarPage.checkIfChatSidebarTabIsOpen(true, 'Thread')
+    await channelPage.sendReply(secondReply)
+    await channelPage.checkIfMessageExistInSidebar(true, secondReply)
+  })
+
   test('Check if user can edit message', async ({ page }) => {
     await leftSideMenuPage.clickChunter()
     await channelPage.clickChannel('random')

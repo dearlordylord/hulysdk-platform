@@ -85,11 +85,13 @@
 
 {#if !readonly}
   <div class="ref-input flex-col">
-    <ActivityExtensionComponent
-      kind="input"
-      {extensions}
-      props={{ object, boundary, collection, autofocus, withTypingInfo: true, onKeyDown }}
-    />
+    {#key `${object._id}_${object._class}_${collection ?? ''}`}
+      <ActivityExtensionComponent
+        kind="input"
+        {extensions}
+        props={{ object, boundary, collection, autofocus, withTypingInfo: true, onKeyDown }}
+      />
+    {/key}
   </div>
 {:else}
   <div class="message">

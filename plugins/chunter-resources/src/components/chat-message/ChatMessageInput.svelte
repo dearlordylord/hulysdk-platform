@@ -47,24 +47,39 @@
 
   const client = getClient()
   const hierarchy = client.getHierarchy()
-  const _class: Ref<Class<ChatMessage>> = hierarchy.isDerived(object._class, activity.class.ActivityMessage)
-    ? chunter.class.ThreadMessage
-    : chunter.class.ChatMessage
   const createdMessageQuery = createQuery()
-
-  const draftKey = `${object._id}_${_class}`
-  const draftController = new DraftController<MessageDraft>(draftKey)
-  const currentDraft = shouldSaveDraft ? $draftsStore[draftKey] : undefined
 
   const emptyMessage: Pick<MessageDraft, 'message' | 'attachments'> = {
     message: EmptyMarkup,
     attachments: 0
   }
 
-  let inputRef: AttachmentRefInput
+  let inputRef: AttachmentRefInput | undefined
+  let objectId = object._id
+  let objectClass = object._class
+  let chatMessageId = chatMessage?._id
+  let _class: Ref<Class<ChatMessage>> = getMessageClass(object)
+  let draftKey = getDraftKey(object, _class)
+  let draftController = new DraftController<MessageDraft>(draftKey)
+  let currentDraft = shouldSaveDraft ? $draftsStore[draftKey] : undefined
   let currentMessage: MessageDraft = chatMessage ?? currentDraft ?? getDefault()
   let _id = currentMessage._id
   let inputContent = currentMessage.message
+
+  $: currentDraft = shouldSaveDraft ? $draftsStore[draftKey] : undefined
+
+  $: {
+    const nextClass = getMessageClass(object)
+    const nextDraftKey = getDraftKey(object, nextClass)
+    if (
+      objectId !== object._id ||
+      objectClass !== object._class ||
+      chatMessageId !== chatMessage?._id ||
+      draftKey !== nextDraftKey
+    ) {
+      resetObjectState(nextClass, nextDraftKey)
+    }
+  }
 
   $: if (currentDraft != null) {
     createdMessageQuery.query(_class, { _id, space: getSpace(object) }, (result: ChatMessage[]) => {
@@ -80,7 +95,8 @@
   function clear (): void {
     currentMessage = getDefault()
     _id = currentMessage._id
-    inputRef.removeDraft(false)
+    inputContent = currentMessage.message
+    inputRef?.removeDraft(false)
   }
 
   function objectChange (draft: MessageDraft, empty: Partial<MessageDraft>): void {
@@ -98,12 +114,37 @@
     }
   }
 
+  function getMessageClass (object: Doc): Ref<Class<ChatMessage>> {
+    return hierarchy.isDerived(object._class, activity.class.ActivityMessage)
+      ? chunter.class.ThreadMessage
+      : chunter.class.ChatMessage
+  }
+
+  function getDraftKey (object: Doc, _class: Ref<Class<ChatMessage>>): string {
+    return `${object._id}_${_class}`
+  }
+
+  function resetObjectState (nextClass: Ref<Class<ChatMessage>>, nextDraftKey: string): void {
+    objectId = object._id
+    objectClass = object._class
+    chatMessageId = chatMessage?._id
+    _class = nextClass
+    draftKey = nextDraftKey
+    draftController = new DraftController<MessageDraft>(draftKey)
+    currentDraft = shouldSaveDraft ? $draftsStore[draftKey] : undefined
+    currentMessage = chatMessage ?? currentDraft ?? getDefault()
+    _id = currentMessage._id
+    inputContent = currentMessage.message
+    createdMessageQuery.unsubscribe()
+    inputRef?.removeDraft(false)
+  }
+
   const acc = getCurrentAccount()
   const throttle = new ThrottledCaller(500)
 
-  async function deleteTypingInfo (): Promise<void> {
+  async function deleteTypingInfo (targetObject: Doc): Promise<void> {
     if (!withTypingInfo) return
-    void clearTyping(acc.primarySocialId, object._id)
+    void clearTyping(acc.primarySocialId, targetObject._id)
   }
 
   async function updateTypingInfo (): Promise<void> {
@@ -126,16 +167,33 @@
     currentMessage.attachments = attachments
   }
 
-  async function handleCreate (event: CustomEvent, _id: Ref<ChatMessage>): Promise<void> {
+  async function handleCreate (
+    event: CustomEvent,
+    _id: Ref<ChatMessage>,
+    targetObject: Doc,
+    targetClass: Ref<Class<ChatMessage>>,
+    targetCollection: string
+  ): Promise<void> {
     try {
-      const res = await createMessage(event, _id, `chunter.create.${_class} ${object._class}`)
+      const res = await createMessage(
+        event,
+        _id,
+        targetObject,
+        targetClass,
+        targetCollection,
+        `chunter.create.${targetClass} ${targetObject._class}`
+      )
 
-      console.log(`create.${_class} measure`, res.serverTime, res.time)
-      const objectId = await getObjectId(object, client.getHierarchy())
-      Analytics.handleEvent(ChunterEvents.MessageCreated, { ok: res.result, objectId, objectClass: object._class })
+      console.log(`create.${targetClass} measure`, res.serverTime, res.time)
+      const objectId = await getObjectId(targetObject, client.getHierarchy())
+      Analytics.handleEvent(ChunterEvents.MessageCreated, {
+        ok: res.result,
+        objectId,
+        objectClass: targetObject._class
+      })
     } catch (err: any) {
-      const objectId = await getObjectId(object, client.getHierarchy())
-      Analytics.handleEvent(ChunterEvents.MessageCreated, { ok: false, objectId, objectClass: object._class })
+      const objectId = await getObjectId(targetObject, client.getHierarchy())
+      Analytics.handleEvent(ChunterEvents.MessageCreated, { ok: false, objectId, objectClass: targetObject._class })
       Analytics.handleError(err)
     }
   }
@@ -153,15 +211,20 @@
   }
 
   async function onMessage (event: CustomEvent): Promise<void> {
+    const submitObject = object
+    const submitClass = _class
+    const submitCollection = collection
+    const submitId = _id
+
     draftController.remove()
-    inputRef.removeDraft(false)
+    inputRef?.removeDraft(false)
 
     if (chatMessage !== undefined) {
       loading = true
       await handleEdit(event)
     } else {
-      void handleCreate(event, _id)
-      void deleteTypingInfo()
+      void handleCreate(event, submitId, submitObject, submitClass, submitCollection)
+      void deleteTypingInfo(submitObject)
     }
 
     // Remove draft from Local Storage
@@ -170,12 +233,19 @@
     loading = false
   }
 
-  async function createMessage (event: CustomEvent, _id: Ref<ChatMessage>, msg: string): Promise<CommitResult> {
+  async function createMessage (
+    event: CustomEvent,
+    _id: Ref<ChatMessage>,
+    targetObject: Doc,
+    targetClass: Ref<Class<ChatMessage>>,
+    targetCollection: string,
+    msg: string
+  ): Promise<CommitResult> {
     const { message, attachments } = event.detail
     const operations = client.apply(undefined, msg)
 
-    if (_class === chunter.class.ThreadMessage) {
-      const parentMessage = object as ActivityMessage
+    if (targetClass === chunter.class.ThreadMessage) {
+      const parentMessage = targetObject as ActivityMessage
 
       await operations.addCollection<ActivityMessage, ThreadMessage>(
         chunter.class.ThreadMessage,
@@ -193,11 +263,11 @@
       )
     } else {
       await operations.addCollection<Doc, ChatMessage>(
-        _class,
-        getSpace(object),
-        object._id,
-        object._class,
-        collection,
+        targetClass,
+        getSpace(targetObject),
+        targetObject._id,
+        targetObject._class,
+        targetCollection,
         { message, attachments },
         _id
       )
@@ -213,12 +283,12 @@
     await client.update(chatMessage, { message, attachments, editedOn: Date.now() })
   }
   export function submit (): void {
-    inputRef.submit()
+    inputRef?.submit()
   }
 
   function handleKeyDown (event: KeyboardEvent): boolean {
     if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
-      if (inputRef.isEmptyDraft() && chatMessage == null) {
+      if (inputRef?.isEmptyDraft() === true && chatMessage == null) {
         onKeyDown?.(event)
       }
     }
