@@ -54,7 +54,7 @@
 
   const draftKey = `${object._id}_${_class}`
   const draftController = new DraftController<MessageDraft>(draftKey)
-  const currentDraft = shouldSaveDraft ? $draftsStore[draftKey] : undefined
+  let currentDraft: MessageDraft | undefined = shouldSaveDraft ? $draftsStore[draftKey] : undefined
 
   const emptyMessage: Pick<MessageDraft, 'message' | 'attachments'> = {
     message: EmptyMarkup,
@@ -65,6 +65,21 @@
   let currentMessage: MessageDraft = chatMessage ?? currentDraft ?? getDefault()
   let _id = currentMessage._id
   let inputContent = currentMessage.message
+  let activeDraftId = currentDraft?._id
+  let ignoreDraftRemoval = false
+
+  $: currentDraft = shouldSaveDraft ? $draftsStore[draftKey] : undefined
+
+  $: if (shouldSaveDraft && chatMessage === undefined) {
+    if (currentDraft !== undefined) {
+      activeDraftId = currentDraft._id
+    } else if (activeDraftId !== undefined) {
+      activeDraftId = undefined
+      if (!ignoreDraftRemoval) {
+        clear()
+      }
+    }
+  }
 
   $: if (currentDraft != null) {
     createdMessageQuery.query(_class, { _id, space: getSpace(object) }, (result: ChatMessage[]) => {
@@ -80,6 +95,7 @@
   function clear (): void {
     currentMessage = getDefault()
     _id = currentMessage._id
+    inputContent = currentMessage.message
     inputRef.removeDraft(false)
   }
 
@@ -153,6 +169,7 @@
   }
 
   async function onMessage (event: CustomEvent): Promise<void> {
+    ignoreDraftRemoval = true
     draftController.remove()
     inputRef.removeDraft(false)
 
@@ -166,6 +183,7 @@
 
     // Remove draft from Local Storage
     clear()
+    ignoreDraftRemoval = false
     dispatch('submit', false)
     loading = false
   }
