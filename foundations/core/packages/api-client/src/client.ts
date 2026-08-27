@@ -165,7 +165,7 @@ class PlatformClientImpl implements PlatformClient {
 
     for (const [key, value] of Object.entries(data)) {
       if (value instanceof MarkupContent) {
-        result[key] = this.markup.uploadMarkup(_class, id, key, value.content, value.kind)
+        result[key] = await this.markup.uploadMarkup(_class, id, key, value.content, value.kind)
       } else {
         result[key] = value
       }
